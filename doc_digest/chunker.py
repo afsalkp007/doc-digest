@@ -1,4 +1,4 @@
-"""Hierarchical document section chunker with markdown header and paragraph awareness."""
+"""Hierarchical document section chunker with markdown header and token budgeting awareness."""
 
 import re
 from typing import List
@@ -9,8 +9,8 @@ class DocumentChunker:
     """Splits long documents into semantic, token-bounded sections for parallel Map processing."""
 
     def __init__(self, max_words: int = 350, overlap_words: int = 30):
-        self.max_words = max_words
-        self.overlap_words = overlap_words
+        self.max_words = max(max_words, 20)
+        self.overlap_words = min(overlap_words, self.max_words // 2)
 
     def chunk(self, text: str, default_title: str = "Section") -> List[DocumentSection]:
         """Split text into structured DocumentSection objects."""
@@ -47,41 +47,38 @@ class DocumentChunker:
                 self._add_or_subsplit_section(sections, current_title, buffer)
 
         else:
-            # No markdown headers found: split by paragraphs with token budget
-            paragraphs = [p.strip() for p in text.strip().split("\n\n") if p.strip()]
-            current_chunk_words: List[str] = []
-            chunk_idx = 1
-
-            for p in paragraphs:
-                p_words = p.split()
-                if len(current_chunk_words) + len(p_words) > self.max_words and current_chunk_words:
-                    chunk_text = " ".join(current_chunk_words)
+            # No markdown headers found: split by token budget
+            words = text.strip().split()
+            if len(words) <= self.max_words * 1.2:
+                sections.append(
+                    DocumentSection(
+                        section_index=0,
+                        title=default_title,
+                        content=text.strip(),
+                        word_count=len(words),
+                        token_estimate=int(len(words) * 1.3),
+                    )
+                )
+            else:
+                step = max(self.max_words - self.overlap_words, 1)
+                part_idx = 1
+                for start in range(0, len(words), step):
+                    chunk_words = words[start:start + self.max_words]
+                    if not chunk_words:
+                        break
+                    chunk_text = " ".join(chunk_words)
                     sections.append(
                         DocumentSection(
                             section_index=len(sections),
-                            title=f"{default_title} (Part {chunk_idx})",
+                            title=f"{default_title} (Part {part_idx})",
                             content=chunk_text,
-                            word_count=len(current_chunk_words),
-                            token_estimate=int(len(current_chunk_words) * 1.3),
+                            word_count=len(chunk_words),
+                            token_estimate=int(len(chunk_words) * 1.3),
                         )
                     )
-                    chunk_idx += 1
-                    # Retain overlap words
-                    current_chunk_words = current_chunk_words[-self.overlap_words:] + p_words
-                else:
-                    current_chunk_words.extend(p_words)
-
-            if current_chunk_words:
-                chunk_text = " ".join(current_chunk_words)
-                sections.append(
-                    DocumentSection(
-                        section_index=len(sections),
-                        title=f"{default_title} (Part {chunk_idx})" if chunk_idx > 1 else default_title,
-                        content=chunk_text,
-                        word_count=len(current_chunk_words),
-                        token_estimate=int(len(current_chunk_words) * 1.3),
-                    )
-                )
+                    part_idx += 1
+                    if start + self.max_words >= len(words):
+                        break
 
         return sections
 
@@ -102,37 +99,23 @@ class DocumentChunker:
                 )
             )
         else:
-            # Sub-split long section into parts
-            sub_paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+            # Sub-split long section into word-bounded parts with overlap
+            step = max(self.max_words - self.overlap_words, 1)
             part_idx = 1
-            curr_words: List[str] = []
-
-            for sp in sub_paragraphs:
-                sp_words = sp.split()
-                if len(curr_words) + len(sp_words) > self.max_words and curr_words:
-                    sub_text = " ".join(curr_words)
-                    sections.append(
-                        DocumentSection(
-                            section_index=len(sections),
-                            title=f"{title} (Part {part_idx})",
-                            content=sub_text,
-                            word_count=len(curr_words),
-                            token_estimate=int(len(curr_words) * 1.3),
-                        )
-                    )
-                    part_idx += 1
-                    curr_words = curr_words[-self.overlap_words:] + sp_words
-                else:
-                    curr_words.extend(sp_words)
-
-            if curr_words:
-                sub_text = " ".join(curr_words)
+            for start in range(0, len(words), step):
+                chunk_words = words[start:start + self.max_words]
+                if not chunk_words:
+                    break
+                sub_text = " ".join(chunk_words)
                 sections.append(
                     DocumentSection(
                         section_index=len(sections),
                         title=f"{title} (Part {part_idx})",
                         content=sub_text,
-                        word_count=len(curr_words),
-                        token_estimate=int(len(curr_words) * 1.3),
+                        word_count=len(chunk_words),
+                        token_estimate=int(len(chunk_words) * 1.3),
                     )
                 )
+                part_idx += 1
+                if start + self.max_words >= len(words):
+                    break

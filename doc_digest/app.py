@@ -322,10 +322,11 @@ if "report" in st.session_state:
                 use_container_width=True,
             )
 
+        report_json_str = report.model_dump_json(indent=2) if hasattr(report, "model_dump_json") else report.json(indent=2)
         with d_col2:
             st.download_button(
                 label="📥 Download Full Map-Reduce Audit (JSON)",
-                data=report.json(indent=2),
+                data=report_json_str,
                 file_name=f"{report.document_title.lower().replace(' ', '_')}_map_reduce_audit.json",
                 mime="application/json",
                 use_container_width=True,
@@ -333,4 +334,4 @@ if "report" in st.session_state:
 
         st.markdown("---")
         st.subheader("🔍 Full Pipeline JSON Schema")
-        st.json(json.loads(report.json()))
+        st.json(json.loads(report_json_str))
