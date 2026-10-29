@@ -85,6 +85,10 @@ class DocumentChunker:
 
         return sections
 
+    def chunk_document(self, text: str, title: str = "Section") -> List[DocumentSection]:
+        """Convenience alias for chunk()."""
+        return self.chunk(text, default_title=title)
+
     def _add_or_subsplit_section(self, sections: List[DocumentSection], title: str, text: str) -> None:
         words = text.split()
         if len(words) <= self.max_words * 1.2:
